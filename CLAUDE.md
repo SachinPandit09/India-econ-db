@@ -23,7 +23,9 @@ views → publish a colour-coded Google Sheets tracker for the team.
 - Activate env (Windows): `.\.venv\Scripts\Activate.ps1`
 - DB connection test: `econdb db-check` (or `python -m econdb db-check`)
 - Tests: `pytest -q` · Lint/format: `ruff check . ; ruff format .`
-- Migrations: `python -m econdb migrate`
+- Migrations: `python -m econdb migrate` (`--status` lists applied/pending). One-time superuser setup,
+  run by the owner only: `db/bootstrap.sql`, `db/bootstrap_roles.sql`
+- Load catalogue + tracker layout into meta: `python -m econdb seed` (idempotent)
 - Run one source: `python -m econdb run --source <name>` · Run everything due: `python -m econdb run --due`
 
 ## Session workflow

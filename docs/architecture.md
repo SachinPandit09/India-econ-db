@@ -69,36 +69,90 @@ India-econ-db/
 
 ## 4. Database design (PostgreSQL)
 Schemas: `meta` (definitions) · `raw` (large source-shaped tables) · `core` (canonical observations)
-· `derived` (computed) · `ops` (runs, alerts, migrations).
+· `derived` (computed) · `ops` (runs, alerts, migrations). DDL: `db/migrations/0001…0006`,
+applied by `econdb migrate`; catalogue and layout loaded by `econdb seed`.
+
+```mermaid
+erDiagram
+  source ||--o{ series : publishes
+  catalogue |o--o{ series : "indicator family"
+  series ||--o{ core_observation : "append-only values"
+  series ||--o{ derived_observation : "aggregates, changes, links"
+  sheet ||--o{ sheet_column : "columns"
+  series |o--o{ sheet_column : "shown in"
+  pipeline_run ||--o{ source_run : "one per source"
+  source ||--o{ source_run : "runs"
+  source_run ||--o{ core_observation : "loaded by"
+  series |o--o{ quality_issue : "flagged"
+  source |o--o{ alert : "raised for"
+```
 
 ### meta
-- `meta.source` — source_id, name, tier, base_url, adapter, schedule (cron, Asia/Kolkata), expected_lag_days, notes.
-- `meta.series` — **series_id** (readable, e.g. `cpi.b2024.in.combined.general.index`), source_id, dataset,
-  indicator, dimensions (jsonb: state, sector, item…), unit, scale, currency, price_basis (current/constant),
-  seasonal_adj, freq, period_basis (FY/CY), base_year, agg_rule, source_params (jsonb), active, notes.
-- `meta.linking_factor` — series_family, old_base, new_base, factor, source_ref, published_on.
-- `meta.release_calendar` — source_id/series_id, reference_period, expected_release_date.
-- `meta.sheet_column` — sheet_code, block_title, column_order, column_label, series_id, calc_kind, calc_lag
-  (drives the Sheets publisher; seeded from `docs/reference/India_Econ_Tracker_Layout.xlsx`).
+- `meta.source` — source_id, name, tier (T1/T1b/T2/T3/T4), base_url, adapter, schedule (cron, Asia/Kolkata),
+  expected_lag_days, active, notes.
+- `meta.catalogue` — 1:1 mirror of the CATALOGUE sheet of the indicator catalogue (206 families: theme,
+  priority, verification, decision, …); `meta.series.catalogue_id` points here.
+- `meta.series` — **series_id** (grammar below), source_id, catalogue_id, family, name, dataset,
+  dimensions (jsonb), unit, scale, currency, price_basis (current/constant), seasonal_adj,
+  freq (D/W/M/Q/A/O), period_basis (FY Apr–Mar · CY · AY Jul–Jun · NULL = explicit survey periods),
+  base_year, agg_rule (mean/sum/end/end_mean/recompute/none), derivation (jsonb; NULL = published by the
+  source, else e.g. linked-series inputs), source_params (jsonb: API parameters or ticker), active, notes.
+  CHECKs: series_id pattern, last token = freq, first token = family.
+- `meta.linking_factor` — family, scope, old_base, new_base, factor (NULL until an official notice),
+  source_ref, published_on. A reseed never overwrites a filled factor.
+- `meta.release_calendar` — source_id, dataset, series_id (NULL = whole dataset), reference_period, expected_on.
+- `meta.sheet` — the layout's CONTENTS sheet as rows (sheet_code, sheet_name, position, category, title…).
+- `meta.sheet_column` — sheet_code, column_no (physical column), block_title, column_label,
+  series_id (NULL = formula column, or source not built yet), agg (series freq → sheet freq),
+  transform (yoy_pct / stage), calc_kind (pct / bps / diff), calc_lag, calc_ref_column (yellow formula
+  columns). Drives the Sheets publisher; the column → series map is `src/econdb/series_map.py`.
+
+### series_id grammar
+`<family>.<base>.<geo>.<subject…>.<measure>.<freq>` — lowercase `[a-z0-9_]`, dot-separated.
+- base: `b2024`, `b2011_12` (published base) · `l2024` (linked to that base) · omitted when no base year.
+- geo: `in` All-India · `in_xx` states/UTs (ISO 3166-2:IN, e.g. `in_mh`, `in_cg`, `in_ts`) · foreign ISO-2
+  (`us`, `jp`, `gb`, `hk`) · `world`.
+- measure: index, infl_yoy (official YoY %), current/constant (NAS), usd/inr (amounts), rate, avg, eop,
+  high, low, close, ….
+- freq is always last (d/w/m/q/a/o) because official annual and quarterly series share a period_start.
+- Examples: `cpi.b2024.in.combined.general.index.m` · `cpi.b2012.in_mh.combined.general.index.m` ·
+  `nas.b2022_23.in.gdp.constant.q` · `trade.in.exports.oil.usd.m` · `eq.in.nifty50.close.d`.
 
 ### core
-- `core.observation` — series_id, period_start, period_end, freq, value numeric, estimate_stage,
-  vintage_at timestamptz, run_id, raw_ref. **Append-only.**
-  Unique (series_id, period_start, vintage_at). Index (series_id, period_start).
+- `core.observation` — series_id, period_start, period_end, freq, value numeric, estimate_stage
+  (advance_1, advance_2, provisional, revised_1..3, final), vintage_at timestamptz, source_run_id, raw_ref.
+  PK (series_id, period_start, vintage_at), which also serves lookups by (series_id, period_start).
+  **Append-only, enforced by trigger**: UPDATE, DELETE and TRUNCATE raise for every role.
 - View `core.latest` — latest vintage per (series_id, period_start).
+- Numeric only. Text-valued data (RBI policy stance, MPC vote, event notes on O01) needs a new migration
+  — a text column or an events table — in Phase 8/9.
 
 ### raw
-- Big source-shaped tables kept out of `core` when very granular, e.g. `raw.mandi_price`
-  (daily rows by state/district/market/commodity/variety) and full CPI item × state detail.
-  Partition by year when > ~10 M rows.
+- Created with their adapters once the payload shape is known: `raw.cpi_detail` (full CPI item × state ×
+  sector detail, Phase 2), `raw.mandi_price` (Phase 3). Partition by year when > ~10 M rows.
 
 ### derived
-- `derived.observation` — same shape as core plus `method`, `is_partial`, `derived_from`;
-  rebuilt by derive jobs (idempotent). Covers W/M/Q/FY aggregates, change metrics, linked series.
+- `derived.observation` — series_id, freq (target frequency), period_start, period_end, method
+  (mean/sum/end/max/min/link/pop_pct/yoy_pct/pop_bps/yoy_bps/pop_diff; pop = period over period),
+  value, is_partial, derived_from, computed_at. PK (series_id, freq, method, period_start). Rebuilt
+  idempotently. Covers W/M/Q/FY aggregates, change metrics, linked series.
 
 ### ops
-- `ops.pipeline_run`, `ops.source_run` (status, rows_new, rows_revised, latest_period, error),
-  `ops.quality_issue`, `ops.alert`, `ops.schema_migrations`.
+- `ops.pipeline_run` (run_id = the log run_id), `ops.source_run` (status, rows_new, rows_revised,
+  latest_period, error; index (source_id, started_at DESC)), `ops.quality_issue`, `ops.alert`,
+  `ops.schema_migrations` (version, filename, checksum over LF-normalised text, applied_at).
+
+### Periods
+- Weekly: week_start = Saturday, week_end = Friday ("Week ending (Fri)" on W sheets).
+- PLFS annual: July–June (AY) up to 2023-24, calendar year (CY) from 2025; period_start/period_end follow
+  the actual survey period.
+
+### Roles
+- `econdb_owner` — owns all objects; runs `econdb migrate` and `econdb seed`.
+- `econdb_writer` (NOLOGIN, `db/bootstrap_roles.sql`) — pipeline sessions `SET ROLE econdb_writer`:
+  SELECT everywhere, INSERT/UPDATE on meta, INSERT only on raw and core, full DML on derived and ops;
+  no DDL, no access to ops.schema_migrations.
+- `econdb_reader` (NOLOGIN) — SELECT on all schemas; people and tools become members later.
 
 Write rule: an incoming value is inserted only if (series_id, period_start) is new or its value/estimate
 stage differs from `core.latest`. Re-running a job adds nothing.
