@@ -1,8 +1,8 @@
 # Project memory — living document (update at the end of every session/phase)
 
 ## Current status
-- Phase: **0 – Setup: checkpoint reached, awaiting owner approval.** Committed locally as
-  "Phase 0: project setup" (not pushed). Next: push to `origin main` after approval, then Phase 1.
+- Phase: **0 – Setup: approved 2026-09-11 and pushed to `origin main`.**
+  Next: Phase 1 (schema & catalogue), starting with a plan for owner approval.
 - Last updated: 2026-09-11 (Claude Code, Phase 0 checkpoint)
 
 ## Environment
@@ -17,7 +17,7 @@
 | Production VPS | Host IT Smart (LIN VPS – SM 2) · data centre Gujarat, India (AS138246 Netclues) · Ubuntu 22.04.5 LTS · 2 vCPU · 7.8 GB RAM · **no swap** · 97 GB disk (65 GB free) · IP 103.168.18.138 · hostname vps.sachinp.com · paid until 2027-06-04 · plan: PostgreSQL 16 (PGDG) |
 | VPS co-tenants (**hands off**, see rules.md) | Shared with the live production app Bharat Laws: `bharatlaws-backend` (Flask/Gunicorn on 127.0.0.1:5000), nginx (80/443/888), MySQL (3306, not reachable externally — confirmed), aaPanel/BT-Panel (`/www`, port 12844, publicly reachable), Acronis backup agents, sendmail |
 | VPS firewall | ufw + aaPanel ipset, default deny. Publicly open: 7576 (SSH), 80, 443, 12844, 888, 20/21/39000–40000 (FTP, nothing listening), 22 (unused) |
-| VPS access notes | Root access restored and root password changed (Sep 2026). SSH on port 7576 (stays there — 443 belongs to nginx). Port 7576 is blocked on the owner's office/institute Wi-Fi: works there via Cloudflare WARP, or use a mobile hotspot. Tailscale under consideration |
+| VPS access notes | Root access restored and root password changed (Sep 2026). SSH on port 7576 (stays there — 443 belongs to nginx). Port 7576 is blocked on the owner's office/institute Wi-Fi: works there via Cloudflare WARP, or use a mobile hotspot. Tailscale to be set up in Phase 7 |
 | VPS backup | Acronis Cloud Backup 10 GB — agent installed, protection plan not yet created (Phase 7 backlog) |
 | Supabase | Project `njbbnyvgxvyorwrooagz` (Mumbai, free). No longer the primary DB; optional off-site backup target |
 | Claude Code MCP (this folder) | `github`, `supabase` |
@@ -38,7 +38,12 @@
 | 2026-09-11 | `db/bootstrap.sql` = one-time superuser setup (role + DB), not a migration; reused on the VPS. Phase 1 reader/writer roles will be proposed as separate superuser SQL | `econdb_owner` stays unprivileged (no CREATEROLE) |
 | 2026-09-11 | CLI on stdlib `argparse`; exact pins in `pyproject.toml`, no separate `requirements.txt` (a `pip freeze` lock can be added for the Phase 7 deploy) | Fewest dependencies and files |
 | 2026-09-11 | The VPS is shared with Bharat Laws: hands-off rules, non-root `econdb` user with `MemoryMax`, changes only in maintenance windows | Must never disturb a live production app |
-| 2026-09-11 | "SSH on port 443" dropped (nginx owns 443); Tailscale considered for private access | Port conflict with Bharat Laws |
+| 2026-09-11 | "SSH on port 443" dropped (nginx owns 443) | Port conflict with Bharat Laws |
+| 2026-09-11 | CPI detail: full detail (every item × state × sector) in a `raw` table; curated `core` series = All-India at all levels (division → item) × rural/urban/combined, plus states at headline and division level | Full history kept, curated layer stays tracker-sized |
+| 2026-09-11 | VPS maintenance window decided in Phase 7 (proposed Sunday 02:00–04:00 IST) | Needs Bharat Laws sign-off |
+| 2026-09-11 | Tailscale: yes, set up in Phase 7 for private VPS/DB access | No public DB or extra public ports |
+| 2026-09-11 | Google Sheet stays owned by sachin.official1218@gmail.com; a FinSkeptics account may take over later | Owner's choice |
+| 2026-09-11 | `*.md` excluded from ruff | Docs must never be reformatted |
 
 ## Verified source findings (from explore/ runs, 11-Sep-2026)
 **MoSPI e-Sankhyiki (`mospi-esankhyiki` 0.1.4, no key)**
@@ -71,18 +76,16 @@ returns only the current day (6,612 rows on 11-Sep-2026) → capture daily to bu
 Sector indices have gaps. Nifty from 2007-09-17, Sensex from 1997-07-01. Keep ≥1.5 s between calls.
 
 **Tooling quirks**
-- ruff 0.16 `ruff format` also formats Python code blocks inside Markdown files (docs/*.md are included).
-  `explore/` is excluded from ruff via `extend-exclude`, so `ruff format .` never touches it.
+- ruff 0.16 `ruff format` also formats Python code blocks inside Markdown files, so `*.md` and
+  `explore/` are both in ruff's `extend-exclude`.
 
 ## Open questions
-- CPI detail level to store in curated tables (all-India all items + states at division level?).
-- Date of the Bharat Laws maintenance window for the Ubuntu 24.04 upgrade (22.04 standard support ends April 2027).
-- Tailscale for private VPS/DB access: yes or no (Phase 7).
+- None open. (Maintenance window date is scheduled for decision in Phase 7.)
 
 ## Session notes (newest first)
 - 2026-09-11 (Phase 0): Repo skeleton, `.venv`, pinned deps, `econdb` CLI with `db-check`, ruff + pytest set up.
   Owner ran `db/bootstrap.sql`, set the role password, completed `.env`, set up the Google Sheets service account.
   `econdb db-check` OK (econdb_owner → econdb, PostgreSQL 16.14); 2 tests pass; ruff clean. VPS facts, VPS rules
   and Phase 7 changes recorded in rules/architecture/phases. Committed locally, not pushed.
-- 2026-09-12: Local PostgreSQL 16.14 confirmed and admin password changed. VPS reachable only via hotspot; root password reset requested from Host IT Smart.
+- 2026-09-11: Local PostgreSQL 16.14 confirmed and admin password changed. VPS reachable only via hotspot; root password reset requested from Host IT Smart.
 - 2026-09-11: Project docs created; exploration complete; ready for Phase 0.

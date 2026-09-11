@@ -56,7 +56,8 @@ The VPS is shared with the live Bharat Laws app — follow the VPS rules in `doc
   fail2ban; restrict ports 12844 (aaPanel) and 888; close the FTP ports (20/21/39000–40000) and 22;
   auto-updates; create the Acronis protection plan; off-site `pg_dump` backups.
 - SSH stays on port 7576 (443 belongs to nginx — the "SSH on 443" idea is dropped).
-  Consider Tailscale for private access.
+  Set up Tailscale for private access (decided 2026-09-11).
+- Agree the maintenance window with Bharat Laws (proposed Sunday 02:00–04:00 IST).
 - Add 2–4 GB swap (the host has none).
 - PostgreSQL 16 from the PGDG repository on `localhost:5432` only; roles; `/etc/econdb/econdb.env`;
   code in `/opt/econdb`; dedicated non-root `econdb` Linux user; systemd units with `MemoryMax`.

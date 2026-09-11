@@ -30,7 +30,7 @@ flowchart LR
 | Config | `.env` | `/etc/econdb/econdb.env` (root-readable only) |
 | Raw archive | `D:\India-econ-db\data\raw` (git-ignored) | `/var/lib/econdb/raw` |
 | Scheduler | run by hand / Windows Task Scheduler (optional) | systemd timer every 30 min → `econdb run --due`, as non-root user `econdb` with systemd `MemoryMax` |
-| Access | direct | SSH on port 7576 (keys only after hardening; 443 belongs to nginx); DB via SSH tunnel (Tailscale under consideration) |
+| Access | direct | SSH on port 7576 (keys only after hardening; 443 belongs to nginx); DB via SSH tunnel or Tailscale (set up in Phase 7) |
 
 Moving local → VPS: `pg_dump -Fc` locally → `pg_restore` on the VPS (or re-run backfills from the raw archive).
 

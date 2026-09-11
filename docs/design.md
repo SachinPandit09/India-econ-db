@@ -55,6 +55,7 @@ An optional `Linked series (…=100)` block uses only official linking factors.
 - Optional Apps Script (editors only): on opening a tab, jump to the newest row.
 
 ## 7. Access
-Spreadsheet `Econdb`, owned by sachin.official1218@gmail.com (ID in `.env` as `GOOGLE_SHEET_ID`);
+Spreadsheet `Econdb`, owned by sachin.official1218@gmail.com (a FinSkeptics account may take over
+later; ID in `.env` as `GOOGLE_SHEET_ID`);
 shared only with named team members; the pipeline writes through the service account
 `econdb-sheets@econdb-508308.iam.gserviceaccount.com`, which has Editor access to that one file.

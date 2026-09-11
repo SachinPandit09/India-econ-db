@@ -24,7 +24,7 @@ build-backend = "hatchling.build"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-extend-exclude = ["explore"]
+extend-exclude = ["explore", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
