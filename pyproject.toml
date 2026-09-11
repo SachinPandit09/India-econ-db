@@ -29,6 +29,7 @@ extend-exclude = ["explore", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # ruff format owns line length; long data-table lines are fmt: skip
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
