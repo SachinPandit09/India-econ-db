@@ -1,0 +1,3 @@
+# Same line endings on Windows (local) and the Linux VPS
+* text=auto eol=lf
+*.xlsx binary
