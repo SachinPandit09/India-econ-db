@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Google service-account keys
+econdb-*.json
+*service-account*.json
+
+# Local environment, runtime data and caches
+.venv/
+data/
+logs/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+explore/output/

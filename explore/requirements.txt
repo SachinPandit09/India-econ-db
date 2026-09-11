@@ -1,0 +1,6 @@
+mospi-esankhyiki
+yfinance
+pandas
+openpyxl
+requests
+python-dotenv
