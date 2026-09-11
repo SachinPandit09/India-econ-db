@@ -79,9 +79,25 @@ def test_every_fixture_normalises_to_valid_rows(name):
         "wpi_1993-94": 1
     }  # the source repeats 'FUEL POWER LIGHT & LUBRICANTS' with 4 values
     for target, rows in (("obs", b.obs), ("cpi", b.cpi), ("detail", b.detail)):
-        kept, conflicts = mospi.dedupe(rows, target)
+        kept, conflicts, _ = mospi.dedupe(rows, target)
         assert len(conflicts) == (ambiguous.get(name, 0) if target == "obs" else 0)
         assert not {k for k in map(mospi.KEYS[target][0], kept)} & set(conflicts)
+
+
+def test_ambiguous_rows_are_kept_in_raw_with_flag_and_position():
+    b = batch_for("wpi_1993-94")
+    kept, conflicts, ambiguous = mospi.dedupe(b.obs, "obs")
+    raw = mospi.ambiguous_detail("obs", ambiguous, b.series)
+    assert len(conflicts) == 1 and len(ambiguous) == 4 and len(raw) == 4
+    assert [r[2]["occurrence"] for r in raw] == [1, 2, 3, 4] and all(r[2]["ambiguous"] for r in raw)
+    assert [r[6] for r in raw] == [
+        Decimal("355.5"),
+        Decimal("281.9"),
+        Decimal("285.7"),
+        Decimal("430.7"),
+    ]
+    assert all("#" in r[8] for r in raw)  # archive file + row position
+    assert all(o[0] != raw[0][2]["series_id"] for o in kept)  # excluded from core
 
 
 def values(name):
@@ -130,8 +146,11 @@ def test_discovered_ids_are_stable_and_distinct():
 def test_dedupe_flags_conflicting_values():
     rows = [("s.in.x.m", date(2026, 1, 1), date(2026, 1, 31), "M", Decimal(1), None, "a")]
     same, conflict = rows + rows[:1], rows + [(*rows[0][:4], Decimal(2), None, "b")]
-    assert mospi.dedupe(same, "obs") == (rows, [])
-    assert mospi.dedupe(conflict, "obs") == ([], [("s.in.x.m", date(2026, 1, 1))])  # never guessed
+    assert mospi.dedupe(same, "obs") == (rows, [], [])
+    assert mospi.dedupe(conflict, "obs")[:2] == (
+        [],
+        [("s.in.x.m", date(2026, 1, 1))],
+    )  # never guessed
 
 
 def test_paging_stops_on_short_page(monkeypatch, tmp_path):

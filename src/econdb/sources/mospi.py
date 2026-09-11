@@ -449,12 +449,13 @@ def normalise(chunk: Chunk, pages) -> Batch:
     fn = NORMALISERS[chunk.dataset]
     for ref, rows, _ in pages:
         b.rows_in += len(rows)
-        for r in rows:
+        for i, r in enumerate(rows):
+            row_ref = f"{ref}#{i}"  # archive file + row position inside it
             try:
-                fn(chunk, r, ref, b)
+                fn(chunk, r, row_ref, b)
             except (ValueError, KeyError) as e:  # e.g. NAS code 19 lists a stray year '1999'
                 b.bad_rows.append(
-                    {"error": str(e), "row": {k: str(v) for k, v in r.items()}, "raw_ref": ref}
+                    {"error": str(e), "row": {k: str(v) for k, v in r.items()}, "raw_ref": row_ref}
                 )
     if chunk.dataset == "NAS":  # some codes list every estimate stage; core keeps the most advanced
         best = {}
@@ -827,20 +828,71 @@ NORMALISERS = {
 }  # fmt: skip
 
 
-def dedupe(rows: list, target: str) -> tuple[list, list]:
+def dedupe(rows: list, target: str) -> tuple[list, list, list]:
     """Drop exact duplicates inside one chunk. Keys whose rows disagree on the value are ambiguous
-    in the source (e.g. WPI 1993-94 repeats a label with different values): all their rows are
-    dropped, never guessed, and the keys are returned for a quality issue."""
+    in the source (e.g. WPI 1993-94 repeats a label with different values): they are never guessed
+    into the target. Returns (clean rows, conflicting keys, every row of those keys)."""
     keyfn, valuefn = KEYS[target]
     first, conflicts = {}, set()
     for row in rows:
         k, v = keyfn(row), valuefn(row)
         if first.setdefault(k, v) != v:
             conflicts.add(k)
-    seen, out = set(), []
+    seen, out, ambiguous = set(), [], []
     for row in rows:
         k = keyfn(row)
-        if k not in conflicts and k not in seen:
+        if k in conflicts:
+            ambiguous.append(row)
+        elif k not in seen:
             seen.add(k)
             out.append(row)
-    return out, sorted(conflicts, key=str)
+    return out, sorted(conflicts, key=str), ambiguous
+
+
+def ambiguous_detail(target: str, rows: list, series: dict) -> list:
+    """Keep ambiguous source rows in raw.mospi_detail, flagged {"ambiguous": true, "occurrence": n}
+    (excluded from core); raw_ref holds the archive file and row position ('...json.gz#17')."""
+    keyfn = KEYS[target][0]
+    seen, out = {}, []
+    for row in rows:
+        k = keyfn(row)
+        seen[k] = seen.get(k, 0) + 1
+        flag = {"ambiguous": True, "occurrence": seen[k]}
+        if target == "detail":
+            dataset, variant, dims, measure, start, end, value, unit, ref = row
+            out.append((dataset, variant, {**dims, **flag}, measure, start, end, value, unit, ref))
+        elif target == "obs":
+            sid, start, end, _freq, value, _stage, ref = row
+            s = series.get(sid, {})
+            dims = {"series_id": sid, **(s.get("dimensions") or {}), **flag}
+            out.append((s.get("dataset") or sid.split(".")[0].upper(), "ambiguous", dims, sid.split(".")[-2],
+                        start, end, value, s.get("unit"), ref))  # fmt: skip
+        else:  # cpi
+            (
+                base,
+                series_name,
+                state,
+                sector,
+                line,
+                level,
+                code,
+                start,
+                index,
+                inflation,
+                _i,
+                status,
+                ref,
+            ) = row
+            dims = {
+                "state": state,
+                "sector": sector,
+                "line": line,
+                "level": level,
+                "code": code,
+                "status": status,
+            }
+            for measure, value in (("index", index), ("inflation", inflation)):
+                if value is not None:
+                    out.append(("CPI", f"{base}/{series_name}", {**dims, **flag}, measure, start,
+                                periods.month_end(start.year, start.month), value, None, ref))  # fmt: skip
+    return out

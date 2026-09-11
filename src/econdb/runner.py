@@ -66,13 +66,20 @@ def load_pages(conn, ch, pages, source_run_id, logger) -> tuple[int, int, date |
     if batch.bad_rows:
         db.quality_issue(conn, source_run_id, "row_skipped", "warn",
                          {"chunk": ch.key, "count": len(batch.bad_rows), "samples": batch.bad_rows[:5]})  # fmt: skip
-    loads = {}
+    loads, kept_raw = {}, []
     for target, rows in (("obs", batch.obs), ("cpi", batch.cpi), ("detail", batch.detail)):
-        rows, conflicts = mospi.dedupe(rows, target)
+        rows, conflicts, ambiguous = mospi.dedupe(rows, target)
         if conflicts:
-            db.quality_issue(conn, source_run_id, "duplicate_key_conflict", "warn",
-                             {"chunk": ch.key, "target": target, "keys": [str(k) for k in conflicts[:20]]})  # fmt: skip
+            if target == "obs" and batch.detail:  # dataset already keeps every source row in raw
+                extra = []
+            else:
+                extra = mospi.ambiguous_detail(target, ambiguous, batch.series)
+            kept_raw += extra
+            db.quality_issue(conn, source_run_id, "ambiguous_source_rows", "warn",
+                             {"chunk": ch.key, "target": target, "keys": [str(k) for k in conflicts[:20]],
+                              "rows": len(ambiguous), "kept_in_raw_mospi_detail": len(extra)})  # fmt: skip
         loads[target] = rows
+    loads["detail"] = loads["detail"] + kept_raw
     with conn.transaction():
         discovered = db.add_series(conn, batch.series.values())
         counts = {t: db.load(conn, t, rows, source_run_id) for t, rows in loads.items()}
@@ -201,9 +208,64 @@ def backfill(
                     conn, source_run_id, "paused", 0, 0, None, "interrupted (Ctrl+C)"
                 )
             print("\ninterrupted - re-run the same command to resume from the last completed chunk")
+        mismatch_report(conn, datasets or mospi.STAGES[stage], run_id)
         db.finish_run(conn, run_id, status)
         print(f"run {run_id} finished: {status} | log {log_path}")
     return 0 if status == "ok" else 1
+
+
+META_DATASET = {
+    "CPI2024": "CPI",
+    "CPI2024BACK": "CPI",
+    "CPI2012": "CPI",
+    "CPI2012ITEM": "CPI",
+    "CPI2010": "CPI",
+}
+STOP_WORDS = {"and", "of", "the", "in", "for", "a", "index", "value", "current", "prices"}
+
+
+def mismatch_report(conn, datasets, run_id) -> None:
+    """Layout-mapped series still without observations, each with the closest discovered series
+    (same family + base, same frequency) by label-word overlap. Printed and saved as CSV."""
+    import csv
+
+    names = sorted({META_DATASET.get(d, d) for d in datasets})
+    missing = conn.execute(
+        """SELECT c.sheet_code, c.block_title, c.column_label, s.series_id
+           FROM meta.sheet_column c JOIN meta.series s USING (series_id)
+           WHERE s.derivation IS NULL AND s.dataset = ANY(%s)
+             AND NOT EXISTS (SELECT 1 FROM core.observation o WHERE o.series_id = s.series_id)
+           ORDER BY 1, 2, 3""",
+        (names,),
+    ).fetchall()
+    found = conn.execute(
+        """SELECT s.series_id, s.name FROM meta.series s WHERE s.dataset = ANY(%s)
+             AND NOT EXISTS (SELECT 1 FROM meta.sheet_column c WHERE c.series_id = s.series_id)""",
+        (names,),
+    ).fetchall()
+    pools = defaultdict(list)
+    for sid, name in found:
+        pools[(".".join(sid.split(".")[:2]), sid[-1])].append((sid, set(mospi.key(name).split())))
+    rows = []
+    for sheet, block, label, sid in missing:
+        words = set(mospi.key(label).split()) - STOP_WORDS or set(mospi.key(label).split())
+        pool = pools[(".".join(sid.split(".")[:2]), sid[-1])]
+        score, best = max(((len(words & w) / len(words), d) for d, w in pool), default=(0.0, ""))
+        rows.append((sheet, block, label, sid, best if score >= 0.5 else "", round(score, 2)))
+    path = archive.root().parent / f"mismatch_run{run_id}.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            ["sheet", "block", "column", "layout_series_id", "closest_discovered", "score"]
+        )
+        writer.writerows(rows)
+    close = sum(1 for r in rows if r[4])
+    print(
+        f"mismatch report: {len(rows)} layout series without data ({close} with a close discovered match) -> {path}"
+    )
+    for r in rows[:15]:
+        print(f"  {r[0]} {r[2][:34]:<34} {r[3]:<48} ~ {r[4] or '-'} ({r[5]})")
 
 
 def report_estimate(chunks, totals) -> int:
