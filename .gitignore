@@ -13,3 +13,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 explore/output/
+
+# Planning docs stay local; reference workbooks stay tracked (econdb seed reads them)
+docs/*.md
+!docs/reference/
